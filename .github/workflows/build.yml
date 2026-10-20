@@ -57,12 +57,29 @@ jobs:
         Set-Location ${{ github.workspace }}
 
     # 把仓库 Secrets 里的密钥注入源码，编译进 exe
+    # 注意：必须用 .Replace()（字面替换）；用 -replace 时 ( ) 会被当成正则分组，匹配不上源码
     - name: Replace Secrets
+      shell: pwsh
       run: |
-        (gc "Plain Craft Launcher 2\Modules\ModSecret.vb") -replace 'Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")', 'Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "${{ secrets.CLIENT_ID }}")' | Out-File "Plain Craft Launcher 2\Modules\ModSecret.vb"
-        (gc "Plain Craft Launcher 2\Modules\ModSecret.vb") -replace 'Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")', 'Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "${{ secrets.CURSEFORGE_API_KEY }}")' | Out-File "Plain Craft Launcher 2\Modules\ModSecret.vb"
-        (gc "Plain Craft Launcher 2\Modules\Base\ModBase.vb") -replace 'Public Const CommitHash As String = ""', 'Public Const CommitHash As String = "${{ github.sha }}"' | Out-File "Plain Craft Launcher 2\Modules\Base\ModBase.vb"
+        $enc = New-Object System.Text.UTF8Encoding($false)
+        $p = "Plain Craft Launcher 2\Modules\ModSecret.vb"
+        $t = Get-Content $p -Raw -Encoding UTF8
+        $t = $t.Replace('Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")', 'Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "${{ secrets.CURSEFORGE_API_KEY }}")')
+        $t = $t.Replace('Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")', 'Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "${{ secrets.CLIENT_ID }}")')
+        [System.IO.File]::WriteAllText((Resolve-Path $p), $t, $enc)
 
+        $b = "Plain Craft Launcher 2\Modules\Base\ModBase.vb"
+        $tb = Get-Content $b -Raw -Encoding UTF8
+        $tb = $tb.Replace('Public Const CommitHash As String = ""', 'Public Const CommitHash As String = "${{ github.sha }}"')
+        [System.IO.File]::WriteAllText((Resolve-Path $b), $tb, $enc)
+
+        if ($t -match 'GetEnvironmentVariable\("PCL_CURSEFORGE_API_KEY"\), ""') {
+          throw "CurseForge API Key 注入失败：Secret 为空或名称不对"
+        }
+        if ($t -match 'GetEnvironmentVariable\("PCL_MS_CLIENT_ID"\), ""') {
+          Write-Host "::warning::CLIENT_ID 未配置，正版登录仍不可用"
+        }
+        Write-Host "密钥注入完成"
     - name: Check Secrets
       shell: pwsh
       env:
